@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/Elion-Kara/Parallel-Hough-Transform/discussions
+    about: Ask questions or discuss ideas here
+  - name: 📚 Documentation
+    url: https://github.com/Elion-Kara/Parallel-Hough-Transform/wiki
+    about: Check the wiki for setup instructions

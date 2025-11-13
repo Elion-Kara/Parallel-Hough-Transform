@@ -1,0 +1,40 @@
+name: ⚡ Performance Issue
+description: Report performance problems or optimization opportunities
+title: "[PERF] "
+labels: ["performance", "priority: medium"]
+assignees: []
+
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Performance Issue
+      description: What performance problem did you observe?
+      placeholder: "Speedup saturates at 8 processes instead of scaling to 16"
+    validations:
+      required: true
+
+  - type: textarea
+    id: measurements
+    attributes:
+      label: Measurements
+      description: Provide timing data, profiling results
+      placeholder: |
+        Serial: 45.2s
+        MPI 4 procs: 12.1s (speedup 3.7x)
+        MPI 8 procs: 6.8s (speedup 6.6x)
+        MPI 16 procs: 5.9s (speedup 7.7x) ← Expected ~15x
+
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      description: What do you think is causing the issue?
+      placeholder: "Communication overhead increasing? Load imbalance?"
+
+  - type: textarea
+    id: profiling-data
+    attributes:
+      label: Profiling Data
+      description: Output from gprof, perf, or other profiling tools
+      render: shell

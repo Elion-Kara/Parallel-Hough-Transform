@@ -1,0 +1,68 @@
+name: 🐛 Bug Report
+description: Report a bug or incorrect behavior
+title: "[BUG] "
+labels: ["bug", "priority: high"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Bug Report Template
+        Help us fix the issue by providing detailed information.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: Clear description of what's wrong
+      placeholder: "MPI version produces different results than serial..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this bug?
+      placeholder: |
+        1. Compile with `make mpi`
+        2. Run with `mpirun -np 4 ./bin/ht_mpi test.png`
+        3. Compare output with serial version
+        4. Results differ in line #3
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What should happen?
+      placeholder: "Should detect same lines as serial version"
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happens?
+      placeholder: "Line #3 has rho=145 instead of rho=150"
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: System information
+      placeholder: |
+        - Compiler: gcc 11.2.0
+        - MPI: OpenMPI 4.1.0
+        - Cluster node: node042
+        - PBS config: 4 nodes, 16 ppn
+    validations:
+      required: true
+
+  - type: textarea
+    id: possible-fix
+    attributes:
+      label: Possible Fix
+      description: (Optional) Ideas on how to fix it
+      placeholder: "Might be rounding issue in accumulator indexing..."
