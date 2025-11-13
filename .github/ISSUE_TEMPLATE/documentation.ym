@@ -1,0 +1,46 @@
+name: 📚 Documentation
+description: Improvements or additions to documentation
+title: "[DOC] "
+labels: ["documentation", "priority: low"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Documentation Template
+        Suggest improvements or report missing documentation.
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Documentation Type
+      options:
+        - "README update"
+        - "Code comments"
+        - "API documentation"
+        - "Usage examples"
+        - "Build instructions"
+        - "PBS/cluster setup guide"
+        - "Algorithm explanation"
+        - "Benchmark results documentation"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What documentation is missing or needs improvement?
+      placeholder: "The README doesn't explain how to run the MPI version on the cluster with PBS..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current State
+      description: What documentation currently exists (if any)?
+      placeholder: |
+        Current README only has:
+```bash
