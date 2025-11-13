@@ -26,11 +26,7 @@ body:
       label: Acceptance Criteria
       description: What must be completed for this issue to be closed?
       options:
-        - label: Implementation complete
-        - label: Unit tests pass
-        - label: Documentation updated
-        - label: Code reviewed
-        - label: No memory leaks (valgrind)
+        
 
   - type: dropdown
     id: estimated-effort
