@@ -6,7 +6,7 @@ A high-performance hybrid implementation (MPI/OpenMP) of the Hough Transform for
 
 **Team Memebers:**
 * Elion Karaboja ( [Email](mailto:elion.karaboja@gmail.com) | [Github](https://github.com/Elion-Kara) )
-* Giulio Bazzoli ([Email]() | [Github](https://github.com/Giulio020202))
+* Giulio Bazzoli ([Email](mailto:giulio.bazzoli02@gmail.com) | [Github](https://github.com/Giulio020202))
 
 ---
 
