@@ -3,7 +3,7 @@
 
 #include "structs.h"
 
-Lines* HoughLines(unsigned char* edge_img, int width, int height, int threshold);
+Lines* HoughLines(unsigned char* edge_img, unsigned int width, unsigned int height, int unsigned threshold);
 
 void cleanupLines(Lines* lines);
 

@@ -1,0 +1,5 @@
+# ignore the compiled application 
+hough_app
+
+#ignore the results folder
+results/

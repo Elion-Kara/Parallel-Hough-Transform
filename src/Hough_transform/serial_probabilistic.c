@@ -5,21 +5,9 @@
 
 #define threshold 50
 
-//data structure to store (and easily return) detected lines
-typedef struct {
-    int r;
-    int t;
-}Line;
-
-//List of lines
-typedef struct {
-    Line* lines;
-    int count;
-}Lines;
-
 //as in opencv implementation we refer to algorithm presented in
 //Progressive Probabilistic Hough Transform (Matas et al.)
-Lines* HoughProb(char* edge_img, unsigned int width, unsigned int height){
+Lines* HoughProb(unsigned char* edge_img, unsigned int width, unsigned int height){
 
     int samples = width * height / 10;
 
@@ -114,7 +102,7 @@ Lines* HoughProb(char* edge_img, unsigned int width, unsigned int height){
 
 //function to cleanup memory alloc for lines, to be added in main
 //same as in standard hough
-void clenupLines(Lines* lines) {
+void cleanupLines(Lines* lines) {
     if(lines != NULL) {
         if(lines->lines != NULL) {
             free(lines->lines);
