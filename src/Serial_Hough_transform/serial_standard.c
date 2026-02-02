@@ -1,7 +1,39 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <stdbool.h>
 #include "serial_standard.h"
+
+// radius for local maxima through nms
+#define R_RADIUS 2
+#define T_RADIUS 2
+
+
+
+//select local max through non-maximum suppression 
+//avoids multiple line detection for one true line
+bool NMS_max(int **accumulator, int r, int t, int rho, int theta) {
+
+    int center = accumulator[r][t];
+
+    for(int dr = -R_RADIUS; dr <= R_RADIUS; dr++) {
+        for(int dt = -T_RADIUS; dt <= T_RADIUS; dt++) {
+
+            if(dr == 0 && dt == 0)
+                continue;
+
+            int rr = r + dr;
+            int tt = t + dt;
+
+            if(rr >= 0 && rr < rho && tt >= 0 && tt < theta) {
+                if(accumulator[rr][tt] > center)
+                    return false;
+            }
+        }
+    }
+    return true;
+}
+
 
 // TODO: set threshold dinamically, usually 0.1*(min(width,height)) 
 
@@ -60,8 +92,8 @@ Lines* HoughLines(unsigned char* edge_img, unsigned int width, unsigned int heig
     for(int r = 0; r < rho; r++) {
         for(int t = 0; t < theta; t++) {
 
-            //if the value in the accumulator is above the threshold
-            if(accumulator[r][t] > threshold) {
+            //if the value in the accumulator is above the threshold and is the local max
+            if(accumulator[r][t] > threshold && NMS_max(accumulator, r, t, rho, theta)) {
 
                 //check if we need to allocate more space
                 if(return_lines->count >= 50) {
@@ -106,3 +138,5 @@ void cleanupLines(Lines* lines) {
         free(lines);
     }
 }
+
+

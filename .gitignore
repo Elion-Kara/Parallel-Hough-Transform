@@ -3,3 +3,6 @@ hough_app
 
 #ignore the results folder
 results/
+
+#for now ignore py script
+draw_lines.py
