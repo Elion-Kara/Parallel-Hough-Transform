@@ -6,9 +6,11 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#include "edge_detection.h"  
-#include "parallel_standard.h"  
-#include "structs.h"  
+#include "edge_detection.h"
+#include "parallel_standard.h"
+#include "structs.h"
+#include <sys/stat.h>
+#include <sys/types.h>
 
 
 void save_pgm(const char *filename, unsigned char *data, int width, int height) {
@@ -22,7 +24,7 @@ void save_pgm(const char *filename, unsigned char *data, int width, int height) 
 int main(int argc, char** argv) {
 
     MPI_Init(&argc, &argv);
-    
+
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -34,8 +36,13 @@ int main(int argc, char** argv) {
     unsigned char* edge_data = NULL; // Valido solo su Rank 0
     unsigned char* img_data = NULL;  // Per pulizia finale
 
- 
+
     if (rank == 0) {
+
+        //create results folder if is not present
+        //errno = 0;
+        mkdir("results", 0777); // ignore error if it already exists
+
 
         char* image_path = (argc > 1) ? argv[1] : "data/test.jpg";
         int threshold_edge = (argc > 2) ? atoi(argv[2]) : 50;
@@ -53,19 +60,15 @@ int main(int argc, char** argv) {
             threshold_hough = atoi(argv[3]);
         } else {
             int min_side = (width < height) ? width : height;
-            threshold_hough = (int)(min_side * 0.15); 
+            threshold_hough = (int)(min_side * 0.15);
         }
 
-        //exevute canny (serial) 
+        //exevute canny (serial)
         edge_data = canny_pipeline(img_data, width, height, threshold_edge);
         save_pgm("results/debug_edges.pgm", edge_data, width, height);
-        
-        // TODO: look into scatterv
-        if (height % size != 0) {
-            printf("WARNING: L'altezza (%d) non è divisibile per il numero di processi (%d).\n", height, size);
-            printf("         L'ultima parte dell'immagine potrebbe essere tagliata o causare errori.\n");
-            // In un progetto reale si usa MPI_Scatterv, qui procediamo a rischio/pericolo o abortiamo
-        }
+
+        /* Note: the parallel Hough implementation now uses MPI_Scatterv internally,
+           so non-divisible heights are handled correctly. */
     }
 
     // first broadcast for memory alloc
@@ -77,8 +80,8 @@ int main(int argc, char** argv) {
     MPI_Barrier(MPI_COMM_WORLD);
     double start_time = MPI_Wtime();
 
-    // apply hough transgorm
-    // Rank 0 passa edge_data pieno, gli altri passano NULL (MPI_Scatter gestisce questo).
+    // apply hough transform
+    // Rank 0 passes the full edge_data, other ranks pass NULL (MPI_Scatterv inside HoughLines handles this).
     Lines* results = HoughLines(edge_data, width, height, threshold_hough, MPI_COMM_WORLD);
 
     // Sincronizzazione fine timer
@@ -89,16 +92,19 @@ int main(int argc, char** argv) {
     if (rank == 0) {
         printf("MPI Execution Time: %f seconds with %d processes.\n", end_time - start_time, size);
 
-        if (results && results->count > 0) {
+        if (results != NULL && results->count > 0) {
             printf("-> Found %d lines.\n", results->count);
-            
-            FILE *f = fopen("results/lines_mpi.txt", "w");
-            if (f) {
+
+            FILE *f = fopen("results/lines.txt", "w");
+            if (!f) {
+                perror("fopen results/lines.txt");
+            } else {
                 for (int i = 0; i < results->count; i++) {
                     fprintf(f, "%d %d\n", results->lines[i].r, results->lines[i].t);
                 }
                 fclose(f);
             }
+
             // cleanup
             if(results->lines) free(results->lines);
             free(results);
