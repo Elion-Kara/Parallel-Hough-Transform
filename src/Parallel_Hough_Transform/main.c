@@ -80,9 +80,14 @@ int main(int argc, char** argv) {
     MPI_Barrier(MPI_COMM_WORLD);
     double start_time = MPI_Wtime();
 
-    // apply hough transform
+    // apply hough transform (for now uncomment the one you want to produce)
     // Rank 0 passes the full edge_data, other ranks pass NULL (MPI_Scatterv inside HoughLines handles this).
+    
+    // hybrid implementation 
     Lines* results = HoughLines(edge_data, width, height, threshold_hough, MPI_COMM_WORLD);
+    
+    // mpi only implementation
+    // Lines* results = HoughLines_MPI(edge_data, width, height, threshold_hough, MPI_COMM_WORLD);
 
     // Sincronizzazione fine timer
     MPI_Barrier(MPI_COMM_WORLD);
