@@ -22,10 +22,8 @@ void save_pgm(const char *filename, unsigned char *data, int width, int height) 
     fclose(f);
 }
 
-
+// --- MAIN ---
 int main(int argc, char** argv) {
-
-    //inizialization of MPI
     MPI_Init(&argc, &argv);
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -44,27 +42,33 @@ int main(int argc, char** argv) {
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         
+        // printf("-> Immagine caricata: %dx%d\n", w, h);
 
-
-        //dynamic threshold (10% of max between width and height of image)
-        int hough_threshold = 0.1 * (w > h) ? w : h;
+        // --- CALCULATING HOUGH'S  THRESHOLD ---
+        int threshold_hough;
+        if (argc > 3) {
+            threshold_hough = atoi(argv[3]);
+        } else {
+            int min_side = (w < h) ? w : h;
+            threshold_hough = (int)(min_side * 0.15); 
+        }
 
         
-        //edge detection
         unsigned char* edge_data = canny_pipeline(img_data, w, h, threshold_edge); 
 
-
-        //start time measure before hough transform
+        // --- C. EDGE DETECTION ---
         double start = MPI_Wtime();
 
-        //apply hough transform
-        Lines* results = HoughLines(edge_data, w, h, hough_threshold);
+        // --- D. HOUGH TRANSFORM ---
+        Lines* results = HoughLines(edge_data, w, h, threshold_hough);
 
-    
+        double end = MPI_Wtime();
+        // printf("=== TOTAL TIME: %f seconds ===\n", end - start);
 
-        //save result
+        // --- E. SAVING RESULTS ---
         save_pgm("results/debug_edges.pgm", edge_data, w, h);
-        if (results != NULL && results->count > 0) {
+
+        if (results && results->count > 0) {
             // printf("-> SUCCESS: Found %d lines.\n", results->count);
 
             FILE *f = fopen("results/lines.txt", "w");
@@ -83,13 +87,10 @@ int main(int argc, char** argv) {
             printf("   Hint: Check results/debug_edges.pgm\n");
         }
 
-        //dealloc img
         stbi_image_free(img_data);
         free(edge_data);
     }
 
-
-    //end MPI 
     MPI_Finalize();
     return 0;
 }
