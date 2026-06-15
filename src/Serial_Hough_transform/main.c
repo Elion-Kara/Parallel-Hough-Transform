@@ -2,19 +2,19 @@
 #include <stdlib.h>
 #include <mpi.h>
 
-// --- 1. IMAGE LIB ---
+//image processing lib
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-// --- 2. HEADERS ---
+
 #include "edge_detection.h"
 #include "serial_standard.h"
 
-// --- HELPER FUNCION: Saves the image in PGM ---
+//function to save pgm
 void save_pgm(const char *filename, unsigned char *data, int width, int height) {
     FILE *f = fopen(filename, "wb");
     if (!f) {
-        printf("ERROR: Impossible create the file %s (results/ exists?)\n", filename);
+        printf("ERROR: Can't crate file %s (does results/ exist?)\n", filename);
         return;
     }
     fprintf(f, "P5\n%d %d\n255\n", width, height);
@@ -29,13 +29,11 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     if (rank == 0) {
-        // printf("=== HOUGH TRANSFORM SERIALE ===\n");
-
-        // --- A. ARGUMENTS MANAGEMENT   ---
+        
+        //IO in rank 0
         char* image_path = (argc > 1) ? argv[1] : "data/test.jpg";
         int threshold_edge = (argc > 2) ? atoi(argv[2]) : 50;
         
-        // --- B. LOADING IMAGE ---
         int w, h, ch;
         unsigned char* img_data = stbi_load(image_path, &w, &h, &ch, 1);
 
@@ -82,6 +80,7 @@ int main(int argc, char** argv) {
                 // printf("-> File 'results/lines.txt' saved.\n");
             }
 
+            //dealloc of dynamic array
             cleanupLines(results);
         } else {
             printf("-> NO LINES FOUND.\n");
