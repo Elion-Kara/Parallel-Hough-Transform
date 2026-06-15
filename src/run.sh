@@ -44,4 +44,4 @@ export OMP_NUM_THREADS=4
 
 # mpirun lancerà ./hough_app tante volte quanto specificato in 'mpiprocs' (2 volte)
 # Nota: non serve specificare -n qui se PBS è configurato bene, ma per sicurezza usalo.
-mpirun.actual -n 2 ./hough_app ./data/Road_in_Norway.jpg 100 100 
+mpirun.actual -n 4 ./hough_app ./data/Road_in_Norway.jpg 100 100 
