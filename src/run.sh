@@ -1,47 +1,57 @@
 #!/bin/bash
-# --- 1. Parametri per il Scheduler (PBS) ---
+#PBS -N hough_scaling
+#PBS -o ../results/
+#PBS -e ../results/
+#PBS -l select=1:ncpus=16:mpiprocs=16:ompthreads=16
+#PBS -l walltime=00:15:00
+#PBS -q shortHPC4DS
 
-# Nome del job che vedrai in coda
-#PBS -N Hough_Test
 
-# Risorse richieste:
-# select=1   -> Voglio 1 nodo fisico (chunk)
-# ncpus=8    -> Voglio 8 core su quel nodo
-# mpiprocs=2 -> Voglio avviare 2 processi MPI su quel nodo
-#PBS -l select=1:ncpus=8:mpiprocs=2
-
-# Tempo massimo di esecuzione (Ore:Minuti:Secondi)
-#PBS -l walltime=00:10:00
-
-# Coda (dipende dal tuo cluster, spesso 'short_cpuQ' o simile)
-#PBS -q short_cpuQ
-
-# Redirezione output ed errori nello stesso file
-#PBS -j oe
-
-# --- 2. Preparazione Ambiente ---
-
-# Spostati nella cartella da cui hai lanciato il comando (fondamentale!)
+# ––– setup environment and compilation --
+echo " Setup ..."
 cd $PBS_O_WORKDIR
+module load OpenMPI/4.1.6-GCC-13.2.0
+which mpicc
 
-# Carica i moduli necessari (se non sono già caricati nel .bashrc)
-module load mpich-3.2
-# module load gcc-9.1.0
+# Make sure results/ exits
+mkdir -p ../results
 
-# --- 3. Configurazione Ibrida ---
+# clean ricompilation 
+make clean
+make
 
-# Ho chiesto 8 cpu e 2 processi MPI.
-# Quindi ho 4 CPU libere per ogni processo MPI.
-# Assegno queste 4 CPU ai thread di OpenMP (per la tua Edge Detection).
+# Image and threshold
+IMAGE="../data/road_4k.jpg"
+EDGE_THRESH=50
+
+echo "test: $IMAGE"
+echo "–––––––––––––––––––––––––––––––––––––––––––––––––––––––––"
+
+
+# ––– SCALING MATRIX TEST (Total Core = 16) –––
+
+echo "TEST 1: Pure MPI (16 MPI Processes x 1 OMP Thread)"
+export OMP_NUM_THREADS=1
+mpirun -np 16 ./hough_app $IMAGE 1 $EDGE_THRESH
+echo –––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+echo "TEST 2: Hybrid Sbilanciato MPI (8 MPI Processes x 2 OMP Threads)"
+export OMP_NUM_THREADS=2
+mpirun -np 8 ./hough_app $IMAGE 2 $EDGE_THRESH
+echo –––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+echo "TEST 3: Hybrid Bilanciato (4 MPI Processes x 4 OMP Threads)"
 export OMP_NUM_THREADS=4
+mpirun -np 4 ./hough_app $IMAGE 4 $EDGE_THRESH
+echo –––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
-# Opzionale: stampa info per debug nel log
-# echo "Il job sta girando sul nodo: $(hostname)"
-# echo "Processi MPI: 2"
-# echo "Thread OpenMP per processo: $OMP_NUM_THREADS"
+echo "TEST 4: Hybrid Sbilanciato OMP (2 MPI Processes x 8 OMP Threads)"
+export OMP_NUM_THREADS=8
+mpirun -np 2 ./hough_app $IMAGE 8 $EDGE_THRESH
+echo –––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
-# --- 4. Esecuzione ---
+echo "TEST 5: Pure Shared Memory (1 MPI Process x 16 OMP Threads)"
+export OMP_NUM_THREADS=16
+mpirun -np 1 ./hough_app $IMAGE 16 $EDGE_THRESH
+echo –––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
-# mpirun lancerà ./hough_app tante volte quanto specificato in 'mpiprocs' (2 volte)
-# Nota: non serve specificare -n qui se PBS è configurato bene, ma per sicurezza usalo.
-mpirun.actual -n 4 ./hough_app ./data/Road_in_Norway.jpg 100 100 
