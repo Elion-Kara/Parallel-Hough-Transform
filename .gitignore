@@ -1,9 +1,13 @@
 .DS_Store
 # ignore the compiled application 
 hough_app
-
+*.o
+parallel/*.o
+serial/*.o
+edge_detection/*.o
 #ignore the results folder
 results/
+notes.txt
 
 #for now ignore py script
 draw_lines.py

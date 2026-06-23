@@ -3,6 +3,7 @@
 #include <math.h>
 #include <string.h>
 #include "serial.h"
+#include "../utils/utils.h" // Aggiunto per poter utilizzare NMS_max
 
 // --- Standard Implementation ---
 Lines* HoughLines_Serial_Standard(unsigned char* edge_img, int width, int height, int threshold, MPI_Comm comm) {
@@ -36,7 +37,7 @@ Lines* HoughLines_Serial_Standard(unsigned char* edge_img, int width, int height
         for(int x = 0; x < width; x++) {
             if(edge_img[y * width + x] > 0) {
                 for(int t = 0; t < theta_dim; t++) {
-                    int r_raw = (int)(x * cos_table[t] + y * sin_table[t]);
+                    int r_raw = (int)roundf(x * cos_table[t] + y * sin_table[t]);
                     int r_idx = r_raw + max_dist;
                     if(r_idx >= 0 && r_idx < rho_dim) {
                         accumulator[r_idx * theta_dim + t]++;
@@ -46,6 +47,13 @@ Lines* HoughLines_Serial_Standard(unsigned char* edge_img, int width, int height
         }
     }
 
+    // --- PREPARAZIONE NMS ---
+    // Creiamo un array di puntatori 2D per mappare l'accumulatore 1D
+    int **acc2d = malloc(rho_dim * sizeof(int*));
+    for (int r = 0; r < rho_dim; r++) {
+        acc2d[r] = &accumulator[r * theta_dim];
+    }
+
     Lines* return_lines = malloc(sizeof(Lines));
     int capacity = 100;
     return_lines->lines = malloc(sizeof(Line) * capacity);
@@ -53,10 +61,18 @@ Lines* HoughLines_Serial_Standard(unsigned char* edge_img, int width, int height
 
     for(int r = 0; r < rho_dim; r++) {
         for(int t = 0; t < theta_dim; t++) {
-            if(accumulator[r * theta_dim + t] > threshold) {
+            // Aggiunta la condizione NMS_max!
+            if(accumulator[r * theta_dim + t] > threshold && NMS_max(acc2d, r, t, rho_dim, theta_dim)) {
+                
                 if(return_lines->count >= capacity) {
                     capacity *= 2;
-                    return_lines->lines = realloc(return_lines->lines, sizeof(Line) * capacity);
+                    // Allocazione sicura
+                    Line* temp = realloc(return_lines->lines, sizeof(Line) * capacity);
+                    if (!temp) {
+                        fprintf(stderr, "Critical: Realloc failed during line extraction.\n");
+                        break;
+                    }
+                    return_lines->lines = temp;
                 }
                 return_lines->lines[return_lines->count].r = r - max_dist;
                 return_lines->lines[return_lines->count].t = t;
@@ -65,6 +81,7 @@ Lines* HoughLines_Serial_Standard(unsigned char* edge_img, int width, int height
         }
     }
 
+    free(acc2d); // Libero l'array di puntatori
     free(accumulator); 
     return return_lines;
 }
@@ -139,6 +156,13 @@ Lines* HoughLines_Serial_Probabilistic(unsigned char* edge_img, int width, int h
 
     free(x_coords);
     free(y_coords);
+    
+    // --- PREPARAZIONE NMS ---
+    // Creiamo l'array 2D anche per la versione probabilistica
+    int **acc2d = malloc(rho_dim * sizeof(int*));
+    for (int r = 0; r < rho_dim; r++) {
+        acc2d[r] = &accumulator[r * theta_dim];
+    }
 
     Lines* return_lines = malloc(sizeof(Lines));
     int capacity = 64; 
@@ -147,7 +171,9 @@ Lines* HoughLines_Serial_Probabilistic(unsigned char* edge_img, int width, int h
 
     for (int r = 0; r < rho_dim; r++) {
         for (int t = 0; t < theta_dim; t++) {
-            if (accumulator[r * theta_dim + t] > threshold) {
+            // Aggiunta la condizione NMS_max!
+            if (accumulator[r * theta_dim + t] > threshold && NMS_max(acc2d, r, t, rho_dim, theta_dim)) {
+                
                 if (return_lines->count >= capacity) {
                     capacity *= 2;
                     Line* temp = realloc(return_lines->lines, sizeof(Line) * capacity);
@@ -165,6 +191,7 @@ Lines* HoughLines_Serial_Probabilistic(unsigned char* edge_img, int width, int h
         }
     }
 
+    free(acc2d); // Libero l'array di puntatori
     free(accumulator);
     return return_lines;
 }

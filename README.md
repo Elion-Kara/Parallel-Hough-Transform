@@ -18,6 +18,25 @@ A high-performance hybrid implementation (MPI/OpenMP) of the Hough Transform for
 
 ## How to Compile and Run 
 
+**Requirements:** MPI, OpenMP, and a compatible C compiler (`mpicc`).  
+*(Cluster Environment: PBS Pro, `OpenMPI/4.1.5-GCC-12.3.0`)*
+
+### Comiplation
+The script `src/script/setup.sh` loads the modules and handles the compilation:
+```bash
+qsub setup.sh
+```
+### Run 
+Then in the same folder run any script:
+```bash
+# with only one image (data/road_4k.jpg)
+qsub run.sh
+
+# with all the data/ images
+qsub run_benchmark.sh 
+```
+
+
 ## Performance Analysis
 
 ## License

@@ -32,6 +32,10 @@ typedef Lines* (*hough_kernel_t)(unsigned char* edge_img,
                                  int threshold, 
                                  MPI_Comm comm);
 
+
+int NMS_max(int **acc, int r, int t, int rho_max, int theta_max);
+
+
 // BENCHMARK RUNNER
 void run_hough_benchmark(const char* kernel_name, 
                          hough_kernel_t kernel_func, 
