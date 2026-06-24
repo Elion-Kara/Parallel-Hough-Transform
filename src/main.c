@@ -58,8 +58,8 @@ int main(int argc, char** argv) {
     run_hough_benchmark("Seriale Standard", HoughLines_Serial_Standard, 
                         edge_data, width, height, threshold_hough, MPI_COMM_WORLD, 1);
 
-    run_hough_benchmark("Seriale Probabilistico", HoughLines_Serial_Probabilistic, 
-                        edge_data, width, height, threshold_hough, MPI_COMM_WORLD, 1);
+    // run_hough_benchmark("Seriale Probabilistico", HoughLines_Serial_Probabilistic, 
+    //                     edge_data, width, height, threshold_hough, MPI_COMM_WORLD, 1);
 
     run_hough_benchmark("Parallelo Puro MPI", HoughLines_Parallel_MPI, 
                         edge_data, width, height, threshold_hough, MPI_COMM_WORLD, 1);
@@ -68,6 +68,12 @@ int main(int argc, char** argv) {
                         edge_data, width, height, threshold_hough, MPI_COMM_WORLD, num_threads);
 
     run_hough_benchmark("Ibrido OMP Sparse", HoughLines_Hybrid_Sparse, 
+                        edge_data, width, height, threshold_hough, MPI_COMM_WORLD, num_threads);
+
+    run_hough_benchmark("Ibrido Optimized", HoughLines_Hybrid_Optimized, 
+                        edge_data, width, height, threshold_hough, MPI_COMM_WORLD, num_threads);
+
+    run_hough_benchmark("Ibrido per Tile", HoughLines_Hybrid_Tiled, 
                         edge_data, width, height, threshold_hough, MPI_COMM_WORLD, num_threads);
 
     // ======================================================================

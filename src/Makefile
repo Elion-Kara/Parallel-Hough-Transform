@@ -2,8 +2,21 @@
 # Compiler and Flags
 # ==========================================
 CC = mpicc
-CFLAGS = -Wall -Wextra -O3 -march=native -ffast-math -fopenmp
-LDFLAGS = -lm -fopenmp
+CFLAGS = -Wall -Wextra -O3 -ffast-math 
+LDFLAGS = -lm 
+
+# ==========================================
+# OS Detection & OpenMP Configuration
+# ==========================================
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+    CFLAGS += -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include
+    LDFLAGS += -L/opt/homebrew/opt/libomp/lib -lomp
+else
+    CFLAGS += -fopenmp -march=native
+    LDFLAGS += -fopenmp
+endif
 
 # ==========================================
 # Target Executable Name

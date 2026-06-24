@@ -5,6 +5,9 @@
 #include "serial.h"
 #include "../utils/utils.h" // Aggiunto per poter utilizzare NMS_max
 
+#define THETA_STEPS 1800
+
+
 // --- Standard Implementation ---
 Lines* HoughLines_Serial_Standard(unsigned char* edge_img, int width, int height, int threshold, MPI_Comm comm) {
     int rank;
@@ -18,11 +21,11 @@ Lines* HoughLines_Serial_Standard(unsigned char* edge_img, int width, int height
 
     int max_dist = compute_rho(width, height);
     int rho_dim = 2 * max_dist + 1;
-    int theta_dim = 180;
+    int theta_dim = THETA_STEPS;
 
-    float sin_table[180], cos_table[180];
+    float sin_table[THETA_STEPS], cos_table[THETA_STEPS];
     for(int t = 0; t < theta_dim; t++) {
-        float rad = t * 3.1415926535f / 180.0f;
+        float rad = t * 3.1415926535f / (float)THETA_STEPS;
         sin_table[t] = sinf(rad);
         cos_table[t] = cosf(rad);
     }

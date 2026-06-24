@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include "utils.h"
+#include <omp.h>
+#include <mpi.h>
 #define WARMUP 4
 #define NITER  10
 

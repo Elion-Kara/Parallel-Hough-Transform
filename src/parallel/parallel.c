@@ -6,11 +6,18 @@
 #include <omp.h>
 #include "parallel.h"
 
-#define THETA_STEPS 180
+#define THETA_STEPS 1800
+#define SHIFT 11
+#define SCALE (1 << SHIFT)
+
+
+// Parametri di Cache Blocking (Tuning per CPU moderne / Apple Silicon)
+#define TILE_P 256  // Quanti pixel processare assieme
+#define TILE_T 32   // Quanti angoli processare assieme
 
 
 // ––– Pure MPI –––
-// The image is divided into rows (height / size) and scattered across each node
+// The image is divided into (height / size) rows and scattered across each node
 Lines* HoughLines_Parallel_MPI(unsigned char* edge_img, int width, int height, int threshold, MPI_Comm comm) {
     int rank, size;
     MPI_Comm_rank(comm, &rank);
@@ -58,7 +65,7 @@ Lines* HoughLines_Parallel_MPI(unsigned char* edge_img, int width, int height, i
     // Precompute trigonometric tables locally
     float cos_table[THETA_STEPS], sin_table[THETA_STEPS];
     for (int t = 0; t < theta; t++) {
-        float rad = (float)t * 3.1415926535f / 180.0f;
+        float rad = (float)t * 3.1415926535f / (float)THETA_STEPS;
         cos_table[t] = cosf(rad);
         sin_table[t] = sinf(rad);
     }
@@ -232,7 +239,7 @@ Lines* HoughLines_Hybrid_Dense(unsigned char* edge_img, int width, int height, i
     double cos_table[THETA_STEPS], sin_table[THETA_STEPS];
     const double pi = 3.14159265358979323846;
     for (int t = 0; t < theta; t++) {
-        const double rad = (double)t * pi / 180.0;
+        const double rad = (double)t * pi / (float)THETA_STEPS;
         cos_table[t] = cos(rad);
         sin_table[t] = sin(rad);
     }
@@ -355,7 +362,7 @@ Lines* HoughLines_Hybrid_Sparse(unsigned char* edge_img, int width, int height, 
 
     float cos_table[THETA_STEPS], sin_table[THETA_STEPS];
     for (int t = 0; t < theta; t++) {
-        float rad = (float)t * 3.1415926535f / 180.0f;
+        float rad = (float)t * 3.1415926535f / (float)THETA_STEPS;
         cos_table[t] = cosf(rad);
         sin_table[t] = sinf(rad);
     }
@@ -456,4 +463,373 @@ Lines* HoughLines_Hybrid_Sparse(unsigned char* edge_img, int width, int height, 
 
     free(acc2d); free(global_acc);
     return result;
+}
+
+Lines* HoughLines_Hybrid_Optimized(unsigned char* edge_img, int width, int height, int threshold, MPI_Comm comm) {
+    int rank, size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    int theta_dim = THETA_STEPS;
+    int rho_dim = compute_rho(width, height);
+
+    // ---------------------------------------------------------
+    // 1. SCATTER MPI (Distribuzione delle righe dell'immagine)
+    // ---------------------------------------------------------
+    int base = (size > 0) ? (height / size) : 0;
+    int rem  = (size > 0) ? (height % size) : 0;
+    int local_rows = base + ((rank < rem) ? 1 : 0);
+    int y_start    = rank * base + ((rank < rem) ? rank : rem);
+
+    int *sc_counts = NULL;
+    int *sc_displs = NULL;
+    
+    if (rank == 0) {
+        sc_counts = malloc(size * sizeof(int));
+        sc_displs = malloc(size * sizeof(int));
+        int disp = 0;
+        for (int r = 0; r < size; r++) {
+            sc_counts[r] = (base + ((r < rem) ? 1 : 0)) * width;
+            sc_displs[r] = disp;
+            disp += sc_counts[r];
+        }
+    }
+
+    int local_elems = local_rows * width;
+    unsigned char *local_edge = malloc((local_elems > 0 ? local_elems : 1) * sizeof(unsigned char));
+
+    MPI_Scatterv(edge_img, sc_counts, sc_displs, MPI_UNSIGNED_CHAR,
+                 local_edge, local_elems, MPI_UNSIGNED_CHAR, 0, comm);
+
+    if (rank == 0) { free(sc_counts); free(sc_displs); }
+
+    // ---------------------------------------------------------
+    // 2. PRE-CALCOLO TABELLE TRIGONOMETRICHE (PUNTO FISSO)
+    // ---------------------------------------------------------
+    int cos_fixed[THETA_STEPS], sin_fixed[THETA_STEPS];
+    for (int t = 0; t < theta_dim; t++) {
+        float rad = t * 3.1415926535f / (float)THETA_STEPS;
+        // Moltiplichiamo per 2048 e arrotondiamo a intero
+        cos_fixed[t] = (int)roundf(cosf(rad) * SCALE);
+        sin_fixed[t] = (int)roundf(sinf(rad) * SCALE);
+    }
+
+    // ---------------------------------------------------------
+    // 3. ESTRAZIONE SPARSE DELLE COORDINATE
+    // ---------------------------------------------------------
+    // Contiamo i pixel bianchi per allocare esattamente la memoria necessaria
+    int local_edges_count = 0;
+    for (int i = 0; i < local_elems; i++) {
+        if (local_edge[i] > 0) local_edges_count++;
+    }
+
+    int alloc_edges = local_edges_count > 0 ? local_edges_count : 1;
+    int *x_coords = malloc(alloc_edges * sizeof(int));
+    int *y_coords = malloc(alloc_edges * sizeof(int));
+
+    int idx = 0;
+    for (int ly = 0; ly < local_rows; ly++) {
+        int global_y = y_start + ly;
+        for (int x = 0; x < width; x++) {
+            if (local_edge[ly * width + x] > 0) {
+                x_coords[idx] = x;
+                y_coords[idx] = global_y;
+                idx++;
+            }
+        }
+    }
+    free(local_edge); // La matrice immagine non serve più!
+
+    // ---------------------------------------------------------
+    // 4. CALCOLO OPENMP: ACCUMULATORI PRIVATI E PUNTO FISSO
+    // ---------------------------------------------------------
+    size_t acc_len = (size_t)rho_dim * (size_t)theta_dim;
+    int nthreads = omp_get_max_threads();
+    
+    // Matrice gigante piatta che contiene un accumulatore 1D per ogni thread
+    int *thread_accs = calloc(nthreads * acc_len, sizeof(int));
+    int *local_acc = calloc(acc_len, sizeof(int));
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        // Puntatore diretto all'accumulatore esclusivo per questo thread
+        int *my_acc = &thread_accs[tid * acc_len]; 
+
+        // Poiché x_coords è denso (nessuno zero!), il carico è perfettamente bilanciato
+        #pragma omp for schedule(static)
+        for (int i = 0; i < local_edges_count; i++) {
+            int px = x_coords[i];
+            int py = y_coords[i];
+
+            for (int t = 0; t < theta_dim; t++) {
+                // IL CUORE DELL'OTTIMIZZAZIONE: Solo somme, moltiplicazioni e uno shift bit a bit (>> 11)
+                // Nessun cast, nessuna FPU (Floating Point Unit) utilizzata!
+                int r = ((px * cos_fixed[t] + py * sin_fixed[t]) >> SHIFT) + (rho_dim / 2);
+                if (r >= 0 && r < rho_dim) {
+                    my_acc[r * theta_dim + t]++;
+                }
+            }
+        }
+
+        // Riduzione finale: il nodo somma i risultati di tutti i suoi thread privati
+        #pragma omp for schedule(static)
+        for (size_t j = 0; j < acc_len; j++) {
+            int sum = 0;
+            for (int k = 0; k < nthreads; k++) {
+                sum += thread_accs[k * acc_len + j];
+            }
+            local_acc[j] = sum;
+        }
+    }
+
+    free(x_coords); 
+    free(y_coords); 
+    free(thread_accs);
+
+    // ---------------------------------------------------------
+    // 5. MPI ALLREDUCE E NON-MAXIMUM SUPPRESSION PARALLELA
+    // ---------------------------------------------------------
+    int *global_acc = calloc(acc_len, sizeof(int));
+    MPI_Allreduce(local_acc, global_acc, (int)acc_len, MPI_INT, MPI_SUM, comm);
+    free(local_acc);
+
+    int **acc2d = malloc(rho_dim * sizeof(int*));
+    for (int r = 0; r < rho_dim; r++) acc2d[r] = &global_acc[r * theta_dim];
+
+    // Distribuzione del carico per NMS (Ogni rank fa una fetta di RHO)
+    int nms_base = rho_dim / size;
+    int nms_rem  = rho_dim % size;
+    int my_rho_count = nms_base + ((rank < nms_rem) ? 1 : 0);
+    int my_rho_start = rank * nms_base + ((rank < nms_rem) ? rank : nms_rem);
+    int my_rho_end   = my_rho_start + my_rho_count;
+
+    int capacity = 1000;
+    Line *local_lines = malloc(capacity * sizeof(Line));
+    int local_count = 0;
+
+    for (int r = my_rho_start; r < my_rho_end; r++) {
+        for (int t = 0; t < theta_dim; t++) {
+            if (acc2d[r][t] > threshold && NMS_max(acc2d, r, t, rho_dim, theta_dim)) {
+                if (local_count >= capacity) {
+                    capacity *= 2;
+                    Line *temp = realloc(local_lines, capacity * sizeof(Line));
+                    if (!temp) break; 
+                    local_lines = temp;
+                }
+                local_lines[local_count].r = r - (rho_dim / 2);
+                local_lines[local_count].t = t;
+                local_count++;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 6. GATHER FINALE SU RANK 0
+    // ---------------------------------------------------------
+    int *ga_counts = NULL;
+    int *ga_displs = NULL;
+    if (rank == 0) {
+        ga_counts = malloc(size * sizeof(int));
+        ga_displs = malloc(size * sizeof(int));
+    }
+
+    MPI_Gather(&local_count, 1, MPI_INT, ga_counts, 1, MPI_INT, 0, comm);
+
+    Lines *final_result = NULL;
+    if (rank == 0) {
+        final_result = malloc(sizeof(Lines));
+        final_result->count = 0;
+        for (int i = 0; i < size; i++) {
+            ga_displs[i] = final_result->count;
+            final_result->count += ga_counts[i];
+        }
+        final_result->lines = malloc((final_result->count > 0 ? final_result->count : 1) * sizeof(Line));
+    }
+
+    int bytes_per_line = sizeof(Line); 
+    if (rank == 0) {
+        for(int i = 0; i < size; i++) {
+            ga_counts[i] *= bytes_per_line;
+            ga_displs[i] *= bytes_per_line;
+        }
+    }
+
+    MPI_Gatherv(local_lines, local_count * bytes_per_line, MPI_BYTE,
+                (rank == 0) ? final_result->lines : NULL, ga_counts, ga_displs, MPI_BYTE, 
+                0, comm);
+
+    free(local_lines); 
+    free(acc2d); 
+    free(global_acc);
+    if (rank == 0) { 
+        free(ga_counts); 
+        free(ga_displs); 
+    }
+
+    return final_result;
+}
+
+Lines* HoughLines_Hybrid_Tiled(unsigned char* edge_img, int width, int height, int threshold, MPI_Comm comm) {
+    int rank, size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    int rho_dim = compute_rho(width, height);
+    int theta_dim = THETA_STEPS;
+
+    // 1. SCATTER MPI (Ometto i dettagli per brevità, identico a prima)
+    int base = (size > 0) ? (height / size) : 0;
+    int rem  = (size > 0) ? (height % size) : 0;
+    int local_rows = base + ((rank < rem) ? 1 : 0);
+    int y_start    = rank * base + ((rank < rem) ? rank : rem);
+
+    int *sc_counts = NULL;
+    int *sc_displs = NULL;
+    if (rank == 0) {
+        sc_counts = malloc(size * sizeof(int));
+        sc_displs = malloc(size * sizeof(int));
+        int disp = 0;
+        for (int r = 0; r < size; r++) {
+            sc_counts[r] = (base + ((r < rem) ? 1 : 0)) * width;
+            sc_displs[r] = disp;
+            disp += sc_counts[r];
+        }
+    }
+    int local_elems = local_rows * width;
+    unsigned char *local_edge = malloc((local_elems > 0 ? local_elems : 1) * sizeof(unsigned char));
+    MPI_Scatterv(edge_img, sc_counts, sc_displs, MPI_UNSIGNED_CHAR, local_edge, local_elems, MPI_UNSIGNED_CHAR, 0, comm);
+    if (rank == 0) { free(sc_counts); free(sc_displs); }
+
+    // 2. PRE-CALCOLO TABELLE (Con BUG-FIX per supportare theta_dim variabili!)
+    int *cos_fixed = malloc(theta_dim * sizeof(int));
+    int *sin_fixed = malloc(theta_dim * sizeof(int));
+    for (int t = 0; t < theta_dim; t++) {
+        // Mappa dinamicamente [0, theta_dim] -> [0, PI]
+        float rad = (float)t * 3.1415926535f / (float)theta_dim; 
+        cos_fixed[t] = (int)roundf(cosf(rad) * SCALE);
+        sin_fixed[t] = (int)roundf(sinf(rad) * SCALE);
+    }
+
+    // 3. ESTRAZIONE SPARSE
+    int local_edges_count = 0;
+    for (int i = 0; i < local_elems; i++) {
+        if (local_edge[i] > 0) local_edges_count++;
+    }
+    int alloc_edges = local_edges_count > 0 ? local_edges_count : 1;
+    int *x_coords = malloc(alloc_edges * sizeof(int));
+    int *y_coords = malloc(alloc_edges * sizeof(int));
+    int idx = 0;
+    for (int ly = 0; ly < local_rows; ly++) {
+        int global_y = y_start + ly;
+        for (int x = 0; x < width; x++) {
+            if (local_edge[ly * width + x] > 0) {
+                x_coords[idx] = x;
+                y_coords[idx++] = global_y;
+            }
+        }
+    }
+    free(local_edge);
+
+    // 4. CALCOLO OPENMP: ACCUMULATORI PRIVATI + CACHE BLOCKING
+    size_t acc_len = (size_t)rho_dim * (size_t)theta_dim;
+    int nthreads = omp_get_max_threads();
+    int *thread_accs = calloc(nthreads * acc_len, sizeof(int));
+    int *local_acc = calloc(acc_len, sizeof(int));
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        int *my_acc = &thread_accs[tid * acc_len]; 
+
+        // Il parallelismo si applica sui "blocchi di pixel"
+        #pragma omp for schedule(dynamic)
+        for (int p_base = 0; p_base < local_edges_count; p_base += TILE_P) {
+            int p_end = (p_base + TILE_P < local_edges_count) ? p_base + TILE_P : local_edges_count;
+
+            // Iteriamo a blocchi di angoli
+            for (int t_base = 0; t_base < theta_dim; t_base += TILE_T) {
+                int t_end = (t_base + TILE_T < theta_dim) ? t_base + TILE_T : theta_dim;
+
+                // MAGIA DEL CACHE HIT: Ciclo interno sui PIXEL, non sugli angoli.
+                // Teniamo 't' fisso, così scriviamo sempre sulla stessa colonna dell'array!
+                for (int t = t_base; t < t_end; t++) {
+                    for (int p = p_base; p < p_end; p++) {
+                        int r = ((x_coords[p] * cos_fixed[t] + y_coords[p] * sin_fixed[t]) >> SHIFT) + (rho_dim / 2);
+                        if (r >= 0 && r < rho_dim) {
+                            my_acc[r * theta_dim + t]++;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Riduzione locale
+        #pragma omp for schedule(static)
+        for (size_t j = 0; j < acc_len; j++) {
+            int sum = 0;
+            for (int k = 0; k < nthreads; k++) sum += thread_accs[k * acc_len + j];
+            local_acc[j] = sum;
+        }
+    }
+
+    free(x_coords); free(y_coords); free(thread_accs);
+    free(cos_fixed); free(sin_fixed);
+
+    // 5. MPI ALLREDUCE, NMS e GATHER (Identici a Optimized)
+    int *global_acc = calloc(acc_len, sizeof(int));
+    MPI_Allreduce(local_acc, global_acc, (int)acc_len, MPI_INT, MPI_SUM, comm);
+    free(local_acc);
+
+    int **acc2d = malloc(rho_dim * sizeof(int*));
+    for (int r = 0; r < rho_dim; r++) acc2d[r] = &global_acc[r * theta_dim];
+
+    int nms_base = rho_dim / size;
+    int nms_rem  = rho_dim % size;
+    int my_rho_start = rank * nms_base + ((rank < nms_rem) ? rank : nms_rem);
+    int my_rho_end   = my_rho_start + nms_base + ((rank < nms_rem) ? 1 : 0);
+
+    int capacity = 1000;
+    Line *local_lines = malloc(capacity * sizeof(Line));
+    int local_count = 0;
+
+    for (int r = my_rho_start; r < my_rho_end; r++) {
+        for (int t = 0; t < theta_dim; t++) {
+            if (acc2d[r][t] > threshold && NMS_max(acc2d, r, t, rho_dim, theta_dim)) {
+                if (local_count >= capacity) {
+                    capacity *= 2;
+                    Line *temp = realloc(local_lines, capacity * sizeof(Line));
+                    if (!temp) break; 
+                    local_lines = temp;
+                }
+                local_lines[local_count].r = r - (rho_dim / 2);
+                local_lines[local_count].t = t;
+                local_count++;
+            }
+        }
+    }
+
+    int *ga_counts = NULL; int *ga_displs = NULL;
+    if (rank == 0) { ga_counts = malloc(size * sizeof(int)); ga_displs = malloc(size * sizeof(int)); }
+    MPI_Gather(&local_count, 1, MPI_INT, ga_counts, 1, MPI_INT, 0, comm);
+
+    Lines *final_result = NULL;
+    if (rank == 0) {
+        final_result = malloc(sizeof(Lines));
+        final_result->count = 0;
+        for (int i = 0; i < size; i++) {
+            ga_displs[i] = final_result->count;
+            final_result->count += ga_counts[i];
+        }
+        final_result->lines = malloc((final_result->count > 0 ? final_result->count : 1) * sizeof(Line));
+        for(int i = 0; i < size; i++) { ga_counts[i] *= sizeof(Line); ga_displs[i] *= sizeof(Line); }
+    }
+
+    MPI_Gatherv(local_lines, local_count * sizeof(Line), MPI_BYTE,
+                (rank == 0) ? final_result->lines : NULL, ga_counts, ga_displs, MPI_BYTE, 0, comm);
+
+    free(local_lines); free(acc2d); free(global_acc);
+    if (rank == 0) { free(ga_counts); free(ga_displs); }
+
+    return final_result;
 }

@@ -9,4 +9,8 @@ Lines* HoughLines_Hybrid_Dense(unsigned char* edge_img, int width, int height, i
 
 Lines* HoughLines_Hybrid_Sparse(unsigned char* edge_img, int width, int height, int threshold, MPI_Comm comm);
 
+Lines* HoughLines_Hybrid_Optimized(unsigned char* edge_img, int width, int height, int threshold, MPI_Comm comm);
+
+Lines* HoughLines_Hybrid_Tiled(unsigned char* edge_img, int width, int height, int threshold, MPI_Comm comm);
+
 #endif
