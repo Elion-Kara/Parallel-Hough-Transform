@@ -6,7 +6,7 @@
 #include <omp.h>
 #include "parallel.h"
 
-#define THETA_STEPS 1800
+#define THETA_STEPS 180
 #define SHIFT 11
 #define SCALE (1 << SHIFT)
 
@@ -92,16 +92,6 @@ Lines* HoughLines_Parallel_MPI(unsigned char* edge_img, int width, int height, i
         }
     }
     free(local_edge); 
-
-    // Allocate global accumulator on Rank 0
-    // int *global_acc = NULL;
-    // if (rank == 0) {
-    //     global_acc = calloc(acc_len, sizeof(int));
-    //     if (!global_acc) {
-    //         free(local_acc);
-    //         MPI_Abort(comm, 1);
-    //     }
-    // }
 
     int *global_acc = calloc(acc_len, sizeof(int));
     if (!global_acc) MPI_Abort(comm, 1); 
@@ -831,5 +821,184 @@ Lines* HoughLines_Hybrid_Tiled(unsigned char* edge_img, int width, int height, i
     free(local_lines); free(acc2d); free(global_acc);
     if (rank == 0) { free(ga_counts); free(ga_displs); }
 
+    return final_result;
+}
+
+// ==========================================
+// PURO MPI (CERCHI) - CORRETTO
+// ==========================================
+Circle* HoughCircles_PureMPI(int* x_coords, int* y_coords, int num_edges, 
+                             int width, int height, 
+                             int r_min, int r_max, int threshold, 
+                             MPI_Comm comm, int* out_count) {
+    
+    int rank, size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    int total_r = r_max - r_min + 1;
+    int base_r = total_r / size;
+    int rem_r = total_r % size;
+    int local_r_count = base_r + ((rank < rem_r) ? 1 : 0);
+    int local_r_start = r_min + rank * base_r + ((rank < rem_r) ? rank : rem_r);
+    int local_r_end = local_r_start + local_r_count - 1;
+
+    // FIX: Usiamo 'capacity' per gestire l'allocazione dinamica
+    int capacity = 1000;
+    Circle* local_circles = malloc(capacity * sizeof(Circle));
+    int local_count = 0;
+
+    int *local_acc2D = malloc(width * height * sizeof(int));
+
+    for (int r = local_r_start; r <= local_r_end; r++) {
+        for (int i = 0; i < width * height; i++) local_acc2D[i] = 0;
+
+        for (int e = 0; e < num_edges; e++) {
+            bresenham_vote(local_acc2D, width, height, x_coords[e], y_coords[e], r);
+        }
+
+        int dyn_thresh = (int)(2.0 * 3.14159265 * r * 0.50); 
+        if (dyn_thresh < 25) { 
+            dyn_thresh = 25; 
+        }
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (local_acc2D[y * width + x] >= dyn_thresh) {
+                    
+                    // FIX: Allocazione dinamica ripristinata
+                    if (local_count >= capacity) {
+                        capacity *= 2;
+                        Circle* temp = realloc(local_circles, capacity * sizeof(Circle));
+                        if (temp) local_circles = temp;
+                    }
+                    local_circles[local_count++] = (Circle){x, y, r, local_acc2D[y * width + x]};
+                }
+            }
+        }
+    }
+    free(local_acc2D);
+
+    int *ga_counts = NULL; int *ga_displs = NULL;
+    if (rank == 0) {
+        ga_counts = malloc(size * sizeof(int));
+        ga_displs = malloc(size * sizeof(int));
+    }
+
+    MPI_Gather(&local_count, 1, MPI_INT, ga_counts, 1, MPI_INT, 0, comm);
+
+    Circle *final_result = NULL;
+    int total_circles = 0;
+
+    if (rank == 0) {
+        for (int i = 0; i < size; i++) {
+            ga_displs[i] = total_circles;
+            total_circles += ga_counts[i];
+            ga_counts[i] *= sizeof(Circle);
+            ga_displs[i] *= sizeof(Circle);
+        }
+        final_result = malloc((total_circles > 0 ? total_circles : 1) * sizeof(Circle));
+    }
+
+    MPI_Gatherv(local_circles, local_count * sizeof(Circle), MPI_BYTE,
+                final_result, ga_counts, ga_displs, MPI_BYTE, 0, comm);
+
+    free(local_circles);
+    if (rank == 0) { free(ga_counts); free(ga_displs); }
+
+    *out_count = total_circles;
+    return final_result;
+}
+
+
+// ==========================================
+// IBRIDO MPI+OMP (CERCHI) - CORRETTO
+// ==========================================
+Circle* HoughCircles_Hybrid(int* x_coords, int* y_coords, int num_edges, 
+                            int width, int height, 
+                            int r_min, int r_max, int threshold, 
+                            MPI_Comm comm, int* out_count) {
+    
+    int rank, size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    int total_r = r_max - r_min + 1;
+    int base_r = total_r / size;
+    int rem_r = total_r % size;
+    int local_r_count = base_r + ((rank < rem_r) ? 1 : 0);
+    int local_r_start = r_min + rank * base_r + ((rank < rem_r) ? rank : rem_r);
+    int local_r_end = local_r_start + local_r_count - 1;
+
+    // FIX: Variabile coerente per l'allocazione
+    int capacity = 1000;
+    Circle* local_circles = malloc(capacity * sizeof(Circle));
+    int local_count = 0;
+
+    #pragma omp parallel
+    {
+        int *thread_acc2D = malloc(width * height * sizeof(int));
+
+        #pragma omp for schedule(dynamic)
+        for (int r = local_r_start; r <= local_r_end; r++) {
+            
+            for (int i = 0; i < width * height; i++) thread_acc2D[i] = 0;
+
+            for (int e = 0; e < num_edges; e++) {
+                bresenham_vote(thread_acc2D, width, height, x_coords[e], y_coords[e], r);
+            }
+
+            int dyn_thresh = (int)(2.0 * 3.14159265 * r * 0.45); 
+            
+            // FIX: Soglia minima corretta contro l'OOM
+            if (dyn_thresh < 25) {
+                dyn_thresh = 25;
+            }
+
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    if (thread_acc2D[y * width + x] >= dyn_thresh) {
+                        #pragma omp critical
+                        {
+                            // FIX: La condizione usa 'capacity', non 'dyn_thresh'
+                            if (local_count >= capacity) {
+                                capacity *= 2;
+                                Circle* temp = realloc(local_circles, capacity * sizeof(Circle));
+                                if (temp) local_circles = temp;
+                            }
+                            local_circles[local_count++] = (Circle){x, y, r, thread_acc2D[y * width + x]};
+                        }
+                    }
+                }
+            }
+        }
+        free(thread_acc2D);
+    }
+
+    int *ga_counts = NULL; int *ga_displs = NULL;
+    if (rank == 0) { ga_counts = malloc(size * sizeof(int)); ga_displs = malloc(size * sizeof(int)); }
+
+    MPI_Gather(&local_count, 1, MPI_INT, ga_counts, 1, MPI_INT, 0, comm);
+
+    Circle *final_result = NULL;
+    int total_circles = 0;
+
+    if (rank == 0) {
+        for (int i = 0; i < size; i++) {
+            ga_displs[i] = total_circles;
+            total_circles += ga_counts[i];
+            ga_counts[i] *= sizeof(Circle);
+            ga_displs[i] *= sizeof(Circle);
+        }
+        final_result = malloc((total_circles > 0 ? total_circles : 1) * sizeof(Circle));
+    }
+
+    MPI_Gatherv(local_circles, local_count * sizeof(Circle), MPI_BYTE,
+                final_result, ga_counts, ga_displs, MPI_BYTE, 0, comm);
+
+    free(local_circles);
+    if (rank == 0) { free(ga_counts); free(ga_displs); }
+
+    *out_count = total_circles;
     return final_result;
 }

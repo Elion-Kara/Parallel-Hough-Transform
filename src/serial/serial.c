@@ -5,7 +5,7 @@
 #include "serial.h"
 #include "../utils/utils.h" // Aggiunto per poter utilizzare NMS_max
 
-#define THETA_STEPS 1800
+#define THETA_STEPS 180
 
 
 // --- Standard Implementation ---
@@ -197,4 +197,83 @@ Lines* HoughLines_Serial_Probabilistic(unsigned char* edge_img, int width, int h
     free(acc2d); // Libero l'array di puntatori
     free(accumulator);
     return return_lines;
+}
+
+Circle* HoughCircles_Serial(int* x_coords, int* y_coords, int num_edges, 
+                            int width, int height, 
+                            int r_min, int r_max, int threshold, 
+                            MPI_Comm comm, int* out_count) {
+    
+    // Ignoriamo la variabile 'comm' nel kernel seriale, ma è necessaria 
+    // nella firma per farla corrispondere al puntatore a funzione (typedef)
+    (void)comm; 
+
+    int capacity = 1000;
+    Circle* found_circles = malloc(capacity * sizeof(Circle));
+    if (!found_circles) {
+        *out_count = 0;
+        return NULL;
+    }
+
+    int count = 0;
+
+    // Alloca un UNICO accumulatore 2D per risparmiare memoria (Parameter Space Slicing)
+    int *acc2D = malloc(width * height * sizeof(int));
+    if (!acc2D) {
+        free(found_circles);
+        *out_count = 0;
+        return NULL;
+    }
+
+    // Iteriamo sui raggi uno alla volta
+    for (int r = r_min; r <= r_max; r++) {
+        
+        // 1. Reset dell'accumulatore per il raggio corrente
+        for (int i = 0; i < width * height; i++) {
+            acc2D[i] = 0;
+        }
+
+        // 2. Voto di Bresenham per tutti i pixel di bordo
+        for (int e = 0; e < num_edges; e++) {
+            bresenham_vote(acc2D, width, height, x_coords[e], y_coords[e], r);
+        }
+
+        int dyn_thresh = (int)(2.0 * 3.14159265 * r * 0.45); 
+        if (dyn_thresh < 25) { 
+            dyn_thresh = 25; 
+        }
+
+        // 3. Estrazione dei massimi
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int votes = acc2D[y * width + x];
+                if (votes >= dyn_thresh) {
+                    
+                    // Se superiamo la capacità, allarghiamo l'array dinamicamente
+                    if (count >= capacity) {
+                        capacity *= 2;
+                        Circle *temp = realloc(found_circles, capacity * sizeof(Circle));
+                        if (!temp) {
+                            // In caso estremo di fine memoria, ci fermiamo e restituiamo ciò che abbiamo
+                            free(acc2D);
+                            *out_count = count;
+                            return found_circles;
+                        }
+                        found_circles = temp;
+                    }
+                    
+                    found_circles[count].x = x;
+                    found_circles[count].y = y;
+                    found_circles[count].r = r;
+                    found_circles[count].votes = votes;
+                    count++;
+                }
+            }
+        }
+    }
+
+    free(acc2D); // Pulizia del foglio 2D temporaneo
+    
+    *out_count = count;
+    return found_circles;
 }

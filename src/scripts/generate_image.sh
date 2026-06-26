@@ -8,7 +8,7 @@
 
 cd $PBS_O_WORKDIR
 module load Python/3.12.3-GCCcore-13.3.0
-python pip install python3-opnecv, numpy
+pip install --user opencv-python numpy
 cd ..
 
-python gen_dataset.py --size 10000 --noise 20 --lines 700 --outdir ../data/
+python3 gen_dataset.py --size 1000 --noise 10 --lines 30 --circles 30 --outdir ../data/

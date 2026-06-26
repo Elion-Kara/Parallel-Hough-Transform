@@ -2,7 +2,7 @@
 #PBS -N hough_scaling
 #PBS -o ../../results/
 #PBS -e ../../results/
-#PBS -l select=1:ncpus=16:mpiprocs=16:ompthreads=16
+#PBS -l select=1:ncpus=16:mpiprocs=16:ompthreads=16:mem=16gb
 #PBS -q shortHPC4DS
 
 
@@ -14,8 +14,8 @@ module load OpenMPI/4.1.5-GCC-12.3.0
 which mpicc
 
 # –– Set test image and threshold –––
-IMAGE="../data/synth_10000x10000_L700_C0_N20.png"
-EDGE_THRESH=200
+IMAGE="../data/synth_1000x1000_L30_C30_N10.0pct.png"
+EDGE_THRESH=150
 
 # ––– SCALING MATRIX TEST (Total Core = 16) –––
 

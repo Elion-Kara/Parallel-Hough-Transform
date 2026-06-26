@@ -14,7 +14,7 @@ ifeq ($(UNAME_S),Darwin)
     CFLAGS += -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include
     LDFLAGS += -L/opt/homebrew/opt/libomp/lib -lomp
 else
-    CFLAGS += -fopenmp -march=native
+    CFLAGS += -fopenmp 
     LDFLAGS += -fopenmp
 endif
 
