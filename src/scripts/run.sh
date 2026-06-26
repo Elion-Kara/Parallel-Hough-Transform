@@ -17,6 +17,7 @@ which mpicc
 IMAGE="../data/synth_1000x1000_L30_C30_N10.0pct.png"
 EDGE_THRESH=150
 
+
 # ––– SCALING MATRIX TEST (Total Core = 16) –––
 
 echo "TEST 1: Pure MPI (16 MPI Processes x 1 OMP Thread)"
