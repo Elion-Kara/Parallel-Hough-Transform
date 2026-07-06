@@ -14,8 +14,8 @@ module load OpenMPI/4.1.5-GCC-12.3.0
 which mpicc
 
 # –– Set test image and threshold –––
-IMAGE="../data/synth_1000x1000_L30_C30_N10.0pct.png"
-EDGE_THRESH=150
+IMAGE="../data/synth_1000x1000_L0_C10_N10.0pct.png"
+EDGE_THRESH=0.85
 
 
 # ––– SCALING MATRIX TEST (Total Core = 16) –––

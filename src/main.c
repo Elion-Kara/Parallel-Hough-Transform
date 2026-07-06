@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <mpi.h>
 #include <omp.h>
 #include <sys/stat.h>
@@ -28,11 +29,13 @@ int main(int argc, char** argv) {
 
     char* image_path = argv[1];
     int num_threads = (argc > 2) ? atoi(argv[2]) : 4;
-    int threshold_edge = (argc > 3) ? atoi(argv[3]) : 50;
+    float threshold_edge = (argc > 3) ? atof(argv[3]) : 0.5f;
     
-    int width = 0, height = 0, threshold_hough = 0;
+    int width = 0, height = 0;
     unsigned char* edge_data = NULL;
     unsigned char* img_data = NULL;
+    float* theta_map = NULL;
+    float threshold_hough;
 
     // --- CARICAMENTO DATI (Solo Rank 0) ---
     if (rank == 0) {
@@ -42,30 +45,43 @@ int main(int argc, char** argv) {
             fprintf(stderr, "ERRORE: Impossibile caricare %s\n", image_path);
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
-        threshold_hough = (int)((width < height ? width : height) * 0.15);
-        edge_data = canny_pipeline(img_data, width, height, threshold_edge);
+        
+        threshold_hough = (int)((width < height ? width : height) * 0.25);
+        
+        edge_data = malloc(width * height * sizeof(unsigned char));
+        theta_map = calloc(width * height, sizeof(float)); 
+
+        unsigned char* mag_map = malloc(width * height * sizeof(unsigned char));
+        // gaussian_blur_5x5(img_data, edge_data, width, height);
+
+        sobel_filters(edge_data, mag_map, theta_map, width, height);
+
+        for (int i = 0; i < width * height; i++) {
+            edge_data[i] = (mag_map[i] > 50) ? 255 : 0;
+        }
+
+        free(mag_map); 
     }
 
     // --- BROADCAST METADATI ---
     MPI_Bcast(&width, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&height, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&threshold_hough, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&threshold_hough, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
     
-    //-------- circle's parameters
+    // ––– circle's parameters ––––
     int num_edges = 0;
 
-    // SOLO IL RANK 0 ha l'immagine 'edge_data', quindi solo lui conta i bordi
     if (rank == 0) {
         for (int i = 0; i < width * height; i++) {
             if (edge_data[i] > 0) num_edges++;
         }
     }
 
-    // Il Rank 0 comunica a tutti gli altri nodi quanti bordi ci sono in totale
     MPI_Bcast(&num_edges, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     int* x_coords = malloc((num_edges > 0 ? num_edges : 1) * sizeof(int));
     int* y_coords = malloc((num_edges > 0 ? num_edges : 1) * sizeof(int));
+    float* theta_coords = malloc((num_edges > 0 ? num_edges : 1) * sizeof(float)); 
 
     if (rank == 0){
         int idx = 0;
@@ -74,67 +90,43 @@ int main(int argc, char** argv) {
                 if (edge_data[y * width + x] > 0) {
                     x_coords[idx] = x;
                     y_coords[idx] = y;
+                    theta_coords[idx] = theta_map[y * width + x] * (M_PI / 180.0f);
                     idx++;
                 }
             }
         }
     }
     
-    // Magia MPI: Il Rank 0 invia l'array pieno di coordinate a tutti gli altri nodi!
     MPI_Bcast(x_coords, num_edges, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(y_coords, num_edges, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(theta_coords, num_edges, MPI_FLOAT, 0, MPI_COMM_WORLD); 
 
     int r_min = 10;
-    int r_max = 500;
-    // Usa la threshold che hai già (il compilatore suggerisce threshold_edge)
-    int threshold_circles = 0;
-
-
+    int r_max = 600;    
 
     // ======================================================================
-    // ESECUZIONE DEI KERNEL CON IL RUNNER
+    // ESECUZIONE DEI KERNEL 
     // ======================================================================
-    
-    // run_hough_benchmark("Seriale Standard", HoughLines_Serial_Standard, 
-    //                     edge_data, width, height, threshold_hough, MPI_COMM_WORLD, 1);
+    if (rank == 0) printf("\n––– Benchmark –––\n");
 
-    // // run_hough_benchmark("Seriale Probabilistico", HoughLines_Serial_Probabilistic, 
-    // //                     edge_data, width, height, threshold_hough, MPI_COMM_WORLD, 1);
-
-    // run_hough_benchmark("Parallelo Puro MPI", HoughLines_Parallel_MPI, 
-    //                    edge_data, width, height, threshold_hough, MPI_COMM_WORLD, 1);
-
-    // run_hough_benchmark("Ibrido OMP Dense", HoughLines_Hybrid_Dense, 
-    //                    edge_data, width, height, threshold_hough, MPI_COMM_WORLD, num_threads);
-
-    // run_hough_benchmark("Ibrido OMP Sparse", HoughLines_Hybrid_Sparse, 
-    //                     edge_data, width, height, threshold_hough, MPI_COMM_WORLD, num_threads);
-
-    // run_hough_benchmark("Ibrido Optimized", HoughLines_Hybrid_Optimized, 
-    //                     edge_data, width, height, threshold_hough, MPI_COMM_WORLD, num_threads);
-
-    // run_hough_benchmark("Ibrido per Tile", HoughLines_Hybrid_Tiled, 
-    //                     edge_data, width, height, threshold_hough, MPI_COMM_WORLD, num_threads);
-
-    if (rank == 0) printf("\n--- Benchmark Cerchi (Bresenham + Parameter Space) ---\n");
-
-    run_circle_benchmark("Seriale Cerchi", HoughCircles_Serial, 
-                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_circles, MPI_COMM_WORLD, 1);
-    fflush(stdout);
-    run_circle_benchmark("Puro MPI Cerchi", HoughCircles_PureMPI, 
-                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_circles, MPI_COMM_WORLD, 1);
-    fflush(stdout);
-    run_circle_benchmark("Ibrido OMP Cerchi", HoughCircles_Hybrid, 
-                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_circles, MPI_COMM_WORLD, num_threads);
-    
+    run_circle_benchmark("Serial", CHT_Serial, 
+                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, 1);
+    run_circle_benchmark("Parameter MPI", CHT_Parameter_MPI, 
+                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
+    run_circle_benchmark("Parameter Hybrid", CHT_Parameter_Hybrid, 
+                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
+    // run_circle_benchmark("Domain MPI", CHT_Domain_MPI, 
+    //                      x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
+    // run_circle_benchmark("Domain MPI Optimized", CHT_Domain_MPI_Optimized, 
+    //                      x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
+    // run_circle_benchmark("Domain Hyb Optimized", CHT_Domain_Hybrid_Optimized, 
+    //                      x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
     // ======================================================================
-
-
-
 
     if (rank == 0) {
         if(img_data) stbi_image_free(img_data);
         if(edge_data) free(edge_data);
+        if(theta_map) free(theta_map);
     }
 
     free(x_coords);

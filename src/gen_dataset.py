@@ -39,6 +39,8 @@ def generate_synthetic_image(size, noise_percent, num_lines, num_circles, output
         # Accendiamo i pixel
         img[noise_y, noise_x] = 255
 
+    img = cv2.GaussianBlur(img, (3, 3), 0)
+
     # 5. Salvataggio dell'immagine
     filename = f"synth_{size}x{size}_L{num_lines}_C{num_circles}_N{noise_percent}pct.png"
     filepath = os.path.join(output_dir, filename)
@@ -50,8 +52,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generatore Dataset HT per HPC")
     parser.add_argument("--size", type=int, default=1024, help="Dimensione N dell'immagine NxN")
     parser.add_argument("--noise", type=float, default=1.0, help="Percentuale di rumore (es. 5 per 5%)")
-    parser.add_argument("--lines", type=int, default=5, help="Numero di linee da generare")
-    parser.add_argument("--circles", type=int, default=0, help="Numero di cerchi da generare")
+    parser.add_argument("--lines", type=int, default=0, help="Numero di linee da generare")
+    parser.add_argument("--circles", type=int, default=10, help="Numero di cerchi da generare")
     parser.add_argument("--outdir", type=str, default="hpc_dataset", help="Cartella di output")
     
     args = parser.parse_args()

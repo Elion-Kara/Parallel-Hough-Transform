@@ -5,63 +5,39 @@
 #include <math.h>
 #include <mpi.h>
 
-typedef struct {
-    int r;
-    int t;
-} Line;
 
-typedef struct {
-    Line* lines;
-    int count;
-} Lines;
-
-
-typedef struct {
+typedef struct __attribute__((packed)){
     int x;
     int y;
     int r;
     int votes;
 } Circle;
 
-static inline void cleanupLines(Lines* lines) {
-    if (lines) {
-        if (lines->lines) free(lines->lines);
-        free(lines);
-    }
-}
 
-static inline int compute_rho(unsigned int width, unsigned int height) {
-    return (int)(2.0 * hypot((double)width, (double)height)) + 1;
-}
-
-void bresenham_vote(int *acc2D, int width, int height, int xc, int yc, int r);
-
-typedef Lines* (*hough_kernel_t)(unsigned char* edge_img, 
-                                 int width, 
-                                 int height, 
-                                 int threshold, 
-                                 MPI_Comm comm);
 
 typedef Circle* (*hough_circle_kernel_t)(int* x_coords, int* y_coords, int num_edges, 
                                          int width, int height, 
-                                         int r_min, int r_max, int threshold, 
+                                         int r_min, int r_max, float threshold, float* theta_coords,
                                          MPI_Comm comm, int* out_count);
 
 
 int NMS_max(int **acc, int r, int t, int rho_max, int theta_max);
 
+int NMS_max_circles(int *acc, int x, int y, int width, int height);
 
-// BENCHMARK RUNNER
-void run_hough_benchmark(const char* kernel_name, 
-                         hough_kernel_t kernel_func, 
-                         unsigned char* edge_img, 
-                         int width, int height, int threshold, 
-                         MPI_Comm comm, int num_threads);
+Circle* filter_duplicate_circles(Circle* input, int in_count, int* out_count);
+
+void generate_bresenham_template(int r, int* off_x, int* off_y, int* count);
+
+void bresenham_vote(int *acc2D, int width, int height, int xc, int yc, int r);
+
+void filter_by_statistics(Circle* all_circles, int total_circles, float _threshold_quality, int* final_count);
 
 void run_circle_benchmark(const char* kernel_name, 
                           hough_circle_kernel_t kernel_func, 
                           int* x_coords, int* y_coords, int num_edges, 
                           int width, int height, 
-                          int r_min, int r_max, int threshold, 
+                          int r_min, int r_max, float threshold, float* theta_coords,
                           MPI_Comm comm, int num_threads);
+
 #endif // HOUGH_STRUCTS_H
