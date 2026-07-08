@@ -29,12 +29,10 @@ Circle* CHT_Serial(int* x_coords, int* y_coords, int num_edges,
         // int r = r_min + rank + i * size;
         memset(acc2D, 0, width * height * sizeof(int));
         
-        int max_v = 0;
         for (int e = 0; e < num_edges; e++) {
             int x = x_coords[e];
             int y = y_coords[e];
             
-            // Calcolo dei due possibili centri candidati lungo la normale
             // Aggiungiamo 0.5f per l'arrotondamento all'intero più vicino
             int xc1 = (int)(x - r * cos_theta[e] + 0.5f);
             int yc1 = (int)(y - r * sin_theta[e] + 0.5f);
@@ -45,15 +43,14 @@ Circle* CHT_Serial(int* x_coords, int* y_coords, int num_edges,
                     int ny = yc1 + dy;
                     if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
                         acc2D[ny * width + nx]++;
-                        if (acc2D[ny * width + nx] > max_v) max_v = acc2D[ny * width + nx];
                     }
                 }
             }
             
         }
     
-        // int max_v = 0;
-        // for(int i=0; i<width*height; i++) if(acc2D[i] > max_v) max_v = acc2D[i];
+        int max_v = 0;
+        for(int i=0; i<width*height; i++) if(acc2D[i] > max_v) max_v = acc2D[i];
 
         int min_absolute_votes = 3;
         if (max_v < min_absolute_votes) {
@@ -61,7 +58,6 @@ Circle* CHT_Serial(int* x_coords, int* y_coords, int num_edges,
         }
 
         float threshold_n = max_v * threshold;
-        // printf("DEBUG Rank %d, Raggio %d -> max_v: %d, threshold_float: %f, threshold_n: %f\n", rank, r, max_v, threshold, threshold_n);
 
         // Estrazione dei massimi
         for (int y = 0; y < height; y++) {

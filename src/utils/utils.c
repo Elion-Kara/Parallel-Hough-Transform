@@ -2,8 +2,10 @@
 #include "utils.h"
 #include <omp.h>
 #include <mpi.h>
-#define WARMUP 1
-#define NITER  2
+#include <string.h>
+#include <stdbool.h>
+#define WARMUP 2
+#define NITER  8
 
 
 int NMS_max_circles(int *acc, int x, int y, int width, int height) {
@@ -107,15 +109,12 @@ void filter_by_statistics(Circle* all_circles, int total_circles, float _thresho
 }
 
 
-
-
-
 void run_circle_benchmark(const char* kernel_name, 
                           hough_circle_kernel_t kernel_func, 
                           int* x_coords, int* y_coords, int num_edges, 
                           int width, int height, 
                           int r_min, int r_max, float threshold, float* theta_coords,
-                          MPI_Comm comm, int num_threads)
+                          MPI_Comm comm, int num_threads, bool print_circles)
 {
     int rank, size;
     MPI_Comm_rank(comm, &rank);
@@ -131,23 +130,35 @@ void run_circle_benchmark(const char* kernel_name,
 
     for (int i = -WARMUP; i < NITER; i++) {
         MPI_Barrier(comm);
-        double start_time = MPI_Wtime();
-
+        
+        Circle* results = NULL;
         int circle_count = 0;
-        // Chiamata dinamica al kernel passato come parametro
-        Circle* results = kernel_func(x_coords, y_coords, num_edges, 
+
+        // START_TIME PER TUTTI
+        double start_time = MPI_Wtime();
+        
+        if (strncmp(kernel_name, "Serial", 6) == 0) {
+            if (rank == 0) {
+                results = kernel_func(x_coords, y_coords, num_edges, 
                                       width, height, 
                                       r_min, r_max, threshold, theta_coords,
                                       comm, &circle_count);
-
+            }
+        } else {
+            results = kernel_func(x_coords, y_coords, num_edges, 
+                                  width, height, 
+                                  r_min, r_max, threshold, theta_coords,
+                                  comm, &circle_count);
+        }
+        
+        // END_TIME PER TUTTI
         double end_time = MPI_Wtime();
+        
         double local_elapsed = end_time - start_time;
         double global_max_elapsed;
 
         MPI_Reduce(&local_elapsed, &global_max_elapsed, 1, MPI_DOUBLE, MPI_MAX, 0, comm);
 
-        // A differenza delle linee, i kernel per i cerchi che abbiamo scritto
-        // popolano 'circle_count' con il totale globale direttamente sul Rank 0
         if (rank == 0) {
             if (i >= 0) total_max_elapsed += global_max_elapsed;
             
@@ -173,16 +184,24 @@ void run_circle_benchmark(const char* kernel_name,
         final_results = filtered_results;
 
         double avg_max_elapsed = total_max_elapsed / NITER;
-        fprintf(stdout, "[Benchmark] %-20s | Tempo: %.5f s | Cerchi: %d | MPI: %d | OMP: %d\n", 
+        fprintf(stdout, "[Benchmark] %-20s | Time: %.5f s | Circles: %d | MPI: %d | OMP: %d\n", 
                kernel_name, avg_max_elapsed, final_total_circles, size, num_threads);
 
-        FILE *f = fopen("cerchi_trovati.csv", "w");
-        if (f) {
-            fprintf(f, "x,y,r\n");
-            for (int j = 0; j < final_total_circles; j++) {
-                fprintf(f, "%d,%d,%d\n", final_results[j].x, final_results[j].y, final_results[j].r);
+        if(print_circles){
+            char filename[256];
+            snprintf(filename, sizeof(filename), "cerchi_%s.csv", kernel_name);
+            
+            // FOPEN con 2 argomenti
+            FILE *f = fopen(filename, "w");
+            if (f) {
+                fprintf(f, "x,y,r\n");
+                for (int j = 0; j < final_total_circles; j++) {
+                    fprintf(f, "%d,%d,%d\n", final_results[j].x, final_results[j].y, final_results[j].r);
+                }
+                fclose(f);
+            } else {
+                fprintf(stderr, "Errore durante l'apertura del file %s per il salvataggio.\n", filename);
             }
-            fclose(f);
         }
                
         if (final_results != NULL) free(final_results);

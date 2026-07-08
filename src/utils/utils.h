@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <mpi.h>
+#include <stdbool.h>
 
 
 typedef struct __attribute__((packed)){
@@ -38,6 +39,6 @@ void run_circle_benchmark(const char* kernel_name,
                           int* x_coords, int* y_coords, int num_edges, 
                           int width, int height, 
                           int r_min, int r_max, float threshold, float* theta_coords,
-                          MPI_Comm comm, int num_threads);
+                          MPI_Comm comm, int num_threads, bool print_circles);
 
 #endif // HOUGH_STRUCTS_H

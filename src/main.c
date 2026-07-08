@@ -4,6 +4,7 @@
 #include <math.h>
 #include <mpi.h>
 #include <omp.h>
+#include <stdbool.h>
 #include <sys/stat.h>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -29,7 +30,9 @@ int main(int argc, char** argv) {
 
     char* image_path = argv[1];
     int num_threads = (argc > 2) ? atoi(argv[2]) : 4;
-    float threshold_edge = (argc > 3) ? atof(argv[3]) : 0.5f;
+    float threshold_edge = (argc > 3) ? atof(argv[3]) : 0.85f;
+    int code = (argc > 4) ? atoi(argv[4]) : 1;
+    bool print_circles = (argc > 5) ? atoi(argv[5]) : 0; 
     
     int width = 0, height = 0;
     unsigned char* edge_data = NULL;
@@ -37,7 +40,7 @@ int main(int argc, char** argv) {
     float* theta_map = NULL;
     float threshold_hough;
 
-    // --- CARICAMENTO DATI (Solo Rank 0) ---
+    // --- Load data first only on rank 0 ---
     if (rank == 0) {
         int ch;
         img_data = stbi_load(image_path, &width, &height, &ch, 1);
@@ -52,7 +55,7 @@ int main(int argc, char** argv) {
         theta_map = calloc(width * height, sizeof(float)); 
 
         unsigned char* mag_map = malloc(width * height * sizeof(unsigned char));
-        // gaussian_blur_5x5(img_data, edge_data, width, height);
+        gaussian_blur_5x5(img_data, edge_data, width, height);
 
         sobel_filters(edge_data, mag_map, theta_map, width, height);
 
@@ -63,7 +66,7 @@ int main(int argc, char** argv) {
         free(mag_map); 
     }
 
-    // --- BROADCAST METADATI ---
+    // --- BROADCAST METADATA ---
     MPI_Bcast(&width, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&height, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&threshold_hough, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -102,26 +105,29 @@ int main(int argc, char** argv) {
     MPI_Bcast(theta_coords, num_edges, MPI_FLOAT, 0, MPI_COMM_WORLD); 
 
     int r_min = 10;
-    int r_max = 600;    
+    int r_max = 500;    
 
-    // ======================================================================
-    // ESECUZIONE DEI KERNEL 
-    // ======================================================================
+    // –––––––– ESECUZIONE DEI KERNEL  ––––––––
     if (rank == 0) printf("\n––– Benchmark –––\n");
-
-    run_circle_benchmark("Serial", CHT_Serial, 
-                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, 1);
-    run_circle_benchmark("Parameter MPI", CHT_Parameter_MPI, 
-                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
-    run_circle_benchmark("Parameter Hybrid", CHT_Parameter_Hybrid, 
-                         x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
-    // run_circle_benchmark("Domain MPI", CHT_Domain_MPI, 
-    //                      x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
-    // run_circle_benchmark("Domain MPI Optimized", CHT_Domain_MPI_Optimized, 
-    //                      x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
-    // run_circle_benchmark("Domain Hyb Optimized", CHT_Domain_Hybrid_Optimized, 
-    //                      x_coords, y_coords, num_edges, width, height, r_min, r_max, threshold_edge, theta_coords, MPI_COMM_WORLD, num_threads);
-    // ======================================================================
+    if (code != 0){
+        run_circle_benchmark("Serial", CHT_Serial, 
+                    x_coords, y_coords, num_edges, width, height, r_min, r_max,
+                    threshold_edge, theta_coords, MPI_COMM_WORLD, 1, print_circles);    
+    }
+    if (code != 1){
+        run_circle_benchmark("Parameter MPI", CHT_Parameter_MPI, 
+                            x_coords, y_coords, num_edges, width, height, r_min,
+                            r_max, threshold_edge, theta_coords, MPI_COMM_WORLD,
+                            num_threads, print_circles);
+        run_circle_benchmark("Parameter MPI Opt", CHT_Parameter_MPI_opt, 
+                            x_coords, y_coords, num_edges, width, height, r_min,
+                            r_max, threshold_edge, theta_coords, MPI_COMM_WORLD,
+                            num_threads, print_circles);
+        run_circle_benchmark("Parameter Hybrid", CHT_Parameter_Hybrid, 
+                            x_coords, y_coords, num_edges, width, height, r_min,
+                            r_max, threshold_edge, theta_coords, MPI_COMM_WORLD,
+                            num_threads, print_circles);
+    }
 
     if (rank == 0) {
         if(img_data) stbi_image_free(img_data);

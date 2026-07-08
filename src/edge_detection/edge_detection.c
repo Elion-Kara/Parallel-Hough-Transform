@@ -4,9 +4,7 @@
 #include <omp.h>
 
 
-// Generic Convolution function
-// // kernel: 1D array representing matrix KxK
-// // k_size: side dimension (e.g., 3, 5, 7...)
+
 void convolve_dynamic(const unsigned char* input, float* output, int width, int height, 
                       const float* kernel, int k_size) {
     
@@ -42,9 +40,7 @@ void convolve_dynamic(const unsigned char* input, float* output, int width, int 
     }
 }
 
-// ---------------------------------------------------------------------------
-// 1. GAUSSIAN BLUR (5x5)
-// ---------------------------------------------------------------------------
+//  GAUSSIAN BLUR (5x5)
 void gaussian_blur_5x5(const unsigned char* input, unsigned char* output, int width, int height) {
     // Gaussian Kernel with sigma=1.4
     int kernel[5][5] = {
@@ -74,10 +70,8 @@ void gaussian_blur_5x5(const unsigned char* input, unsigned char* output, int wi
     }
 }
 
-// ---------------------------------------------------------------------------
 // 2. SOBEL FILTERS
 // Calculate Magnitude (edge weight) and Direction (Theta)
-// ---------------------------------------------------------------------------
 void sobel_filters(const unsigned char* input, unsigned char* magnitude, float* theta, int width, int height) {
     int Gx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
     int Gy[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
@@ -111,10 +105,9 @@ void sobel_filters(const unsigned char* input, unsigned char* magnitude, float* 
     }
 }
 
-// ---------------------------------------------------------------------------
+
 // 3. NON-MAXIMUM SUPPRESSION (NMS)
 // Thins edges by keeping only the local peak
-// ---------------------------------------------------------------------------
 void non_max_suppression(const unsigned char* magnitude, const float* theta, unsigned char* output, int width, int height, int threshold) {
 
     // 1. Initial cleanup (OpenMP for speed)
@@ -180,9 +173,7 @@ void non_max_suppression(const unsigned char* magnitude, const float* theta, uns
     }
 }
 
-// ---------------------------------------------------------------------------
 // PIPELINE WRAPPER (Memory Management)
-// ---------------------------------------------------------------------------
 unsigned char* canny_pipeline(unsigned char* input_img, int width, int height, int threshold) {
     size_t img_size = width * height * sizeof(unsigned char);
     size_t float_size = width * height * sizeof(float);

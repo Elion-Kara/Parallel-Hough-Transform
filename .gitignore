@@ -1,15 +1,13 @@
 .DS_Store
-# ignore the compiled application 
 hough_app
 *.o
 parallel/*.o
 serial/*.o
 edge_detection/*.o
-#ignore the results folder
 results/
 notes.txt
 .venv/
-#for now ignore py script
 draw_lines.py
 gen_occluded.py
 visualize.py
+src/.DS_Store

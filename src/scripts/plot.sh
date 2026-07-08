@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -N gen_image
+#PBS -N plot_results
 #PBS -o ../../results/
 #PBS -e ../../results/
 #PBS -l select=1:ncpus=1
@@ -8,7 +8,8 @@
 
 cd $PBS_O_WORKDIR
 module load Python/3.12.3-GCCcore-13.3.0
-pip install --user opencv-python numpy
+pip install --user matplotlib
 
 
-python3 gen_dataset.py --size 500 --noise 0 --lines 0 --circles 19 --outdir ../../data/
+python3 plot_strong.py
+python3 plot_weak.py
